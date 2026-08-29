@@ -1,5 +1,6 @@
 # DoNext
-**Live Demo:** 
+**Live Demo:** https://zunaira-zou.github.io/DoNext-documents-analyzer-and-plan-generator/
+
 **AI Administrative Assistant**
 
 > Don’t just understand the document. Know what to do next.
