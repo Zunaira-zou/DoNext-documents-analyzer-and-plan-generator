@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DoNext — AI Administrative Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .glass { background: rgba(255,255,255,0.75); backdrop-filter: blur(12px); }
+    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 12px 24px -8px rgba(0,0,0,0.1); }
+    .fade-in { animation: fadeIn 0.35s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .scrollbar-thin::-webkit-scrollbar { width: 5px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    .priority-high { border-left: 4px solid #ef4444; }
+    .priority-medium { border-left: 4px solid #f59e0b; }
+    .priority-low { border-left: 4px solid #22c55e; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 min-h-screen">
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ========== UTILS ==========
+const generateId = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+const formatDate = (d) => {
+  if (!d) return '—';
+  try {
+    const date = new Date(d);
+    if (isNaN(date)) return d;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return d; }
+};
+const daysUntil = (d) => {
+  if (!d) return null;
+  try {
+    const target = new Date(d);
+    if (isNaN(target)) return null;
+    return Math.ceil((target - new Date()) / (1000 * 60 * 60 * 24));
+  } catch { return null; }
+};
+const urgencyColor = (days) => {
+  if (days === null) return 'text-slate-500';
+  if (days < 0) return 'text-red-600';
+  if (days <= 3) return 'text-red-500';
+  if (days <= 7) return 'text-amber-500';
+  return 'text-emerald-500';
+};
+const urgencyBg = (days) => {
+  if (days === null) return 'bg-slate-50';
+  if (days < 0) return 'bg-red-50';
+  if (days <= 3) return 'bg-red-50';
+  if (days <= 7) return 'bg-amber-50';
+  return 'bg-emerald-50';
+};
+
+// ========== MOCK AI ANALYSIS ==========
+// Production: call LLM with document text + structured output schema.
+function analyzeDocument(text, fileName = 'Uploaded Document') {
+  const lower = (text || '').toLowerCase();
+  const isScholarship = lower.includes('scholarship') || lower.includes('grant') || lower.includes('financial aid') || lower.includes('cgpa');
+  const isInternship = lower.includes('internship') || lower.includes('intern ');
+  const isAdmission = lower.includes('admission') || lower.includes('enrollment');
+
+  let title = (fileName || 'Document').replace(/\.[^/.]+$/, '');
+  let description = 'Official administrative notice requiring action.';
+  let eligibility = [];
+  let deadlines = [];
+  let requiredDocuments = [];
+  let requiredActions = [];
+  let applicationUrl = null;
+  let warnings = [];
+  let fees = null;
+  let mainPurpose = 'Review and complete required actions before the stated deadline.';
+
+  const dateRegex = /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})/gi;
+  const foundDates = [...(text || '').matchAll(dateRegex)].map(m => m[0]);
+
+  if (isScholarship) {
+    title = 'Undergraduate Scholarship Application';
+    description = 'This is an undergraduate scholarship application for students who meet specific academic and financial requirements.';
+    mainPurpose = 'Apply for an undergraduate scholarship by submitting required documents and completing the online form before the deadline.';
+    eligibility = [
+      'Undergraduate students currently enrolled',
+      'Minimum CGPA of 3.0',
+      'Must meet the stated financial need criteria',
+      'Valid national identity document (CNIC)'
+    ];
+    deadlines = [
+      { id: generateId(), title: 'Scholarship Application Deadline', date: '2026-09-15', type: 'application' },
+      { id: generateId(), title: 'Recommendation Letter Needed By', date: '2026-09-10', type: 'document' },
+      { id: generateId(), title: 'Document Verification', date: '2026-09-20', type: 'verification' }
+    ];
+    requiredDocuments = [
+      { id: generateId(), name: 'CNIC / National ID', status: 'missing', notes: 'Clear scanned copy' },
+      { id: generateId(), name: 'Latest Transcript', status: 'missing', notes: 'Official or provisional' },
+      { id: generateId(), name: 'Income Certificate', status: 'missing', notes: 'Issued within last 6 months' },
+      { id: generateId(), name: 'Passport-size Photograph', status: 'missing', notes: 'Recent, white background' },
+      { id: generateId(), name: 'Recommendation Letter', status: 'missing', notes: 'From faculty member' }
+    ];
+    requiredActions = [
+      { id: generateId(), title: 'Check whether you meet the eligibility requirements', description: 'Verify CGPA ≥ 3.0 and financial criteria', priority: 'high', status: 'not_started' },
+      { id: generateId(), title: 'Prepare your latest transcript', description: 'Request official transcript from university', priority: 'high', status: 'not_started', deadline: '2026-09-05' },
+      { id: generateId(), title: 'Obtain your income certificate', description: 'Request from relevant authority', priority: 'high', status: 'not_started', deadline: '2026-09-08' },
+      { id: generateId(), title: 'Prepare a passport-size photograph', description: 'Get recent photo with white background', priority: 'medium', status: 'not_started' },
+      { id: generateId(), title: 'Request recommendation letter', description: 'Contact professor / supervisor early — may take several days', priority: 'high', status: 'not_started', deadline: '2026-09-10' },
+      { id: generateId(), title: 'Create an account on the application portal', description: 'Register using institutional email', priority: 'medium', status: 'not_started' },
+      { id: generateId(), title: 'Complete the online application form', description: 'Fill all required fields accurately', priority: 'high', status: 'not_started', deadline: '2026-09-14' },
+      { id: generateId(), title: 'Upload all required documents', description: 'Ensure clear PDFs or images', priority: 'high', status: 'not_started', deadline: '2026-09-14' },
+      { id: generateId(), title: 'Review and submit the application', description: 'Double-check everything before final submission', priority: 'high', status: 'not_started', deadline: '2026-09-15' }
+    ];
+    applicationUrl = 'https://scholarships.example.edu/apply';
+    warnings = [
+      'Incomplete applications will not be considered.',
+      'Late submissions after September 15, 2026 will be rejected.',
+      'All documents must be in English or officially translated.'
+    ];
+    fees = 'No application fee';
+  } else if (isInternship) {
+    title = 'Internship Application Notice';
+    description = 'Opportunity for students to apply for a structured internship program.';
+    mainPurpose = 'Submit internship application with required materials by the deadline.';
+    eligibility = ['Currently enrolled students', 'Relevant major preferred'];
+    deadlines = [{ id: generateId(), title: 'Application Deadline', date: '2026-08-30', type: 'application' }];
+    requiredDocuments = [
+      { id: generateId(), name: 'Resume / CV', status: 'missing' },
+      { id: generateId(), name: 'Cover Letter', status: 'missing' },
+      { id: generateId(), name: 'Academic Transcript', status: 'missing' }
+    ];
+    requiredActions = [
+      { id: generateId(), title: 'Update resume', priority: 'high', status: 'not_started' },
+      { id: generateId(), title: 'Write cover letter', priority: 'high', status: 'not_started' },
+      { id: generateId(), title: 'Submit online application', priority: 'high', status: 'not_started', deadline: '2026-08-30' }
+    ];
+    applicationUrl = 'https://careers.example.com/internships';
+  } else {
+    title = title || 'Administrative Document';
+    description = (text || '').slice(0, 200) + ((text || '').length > 200 ? '…' : '');
+    if (foundDates.length) {
+      deadlines = foundDates.slice(0, 3).map((d, i) => ({
+        id: generateId(),
+        title: i === 0 ? 'Primary Deadline' : `Important Date ${i + 1}`,
+        date: d,
+        type: 'general'
+      }));
+    }
+    requiredActions = [
+      { id: generateId(), title: 'Review the full document carefully', priority: 'high', status: 'not_started' },
+      { id: generateId(), title: 'Identify personal eligibility', priority: 'high', status: 'not_started' },
+      { id: generateId(), title: 'Gather any required supporting documents', priority: 'medium', status: 'not_started' },
+      { id: generateId(), title: 'Complete required forms or applications', priority: 'high', status: 'not_started' }
+    ];
+    const urlMatch = (text || '').match(/https?:\/\/[^\s<>"{}|\\^`\[\]]+/i);
+    if (urlMatch) applicationUrl = urlMatch[0];
+  }
+
+  const summary = {
+    whatIsThis: description,
+    whoIsEligible: eligibility,
+    applicationDeadline: deadlines.find(d => d.type === 'application')?.date || deadlines[0]?.date || null,
+    fees,
+    warnings
+  };
+
+  return {
+    id: generateId(),
+    title,
+    description,
+    mainPurpose,
+    eligibility,
+    deadlines,
+    requiredDocuments,
+    requiredActions: requiredActions.map(a => ({ ...a, id: a.id || generateId(), status: a.status || 'not_started' })),
+    applicationUrl,
+    warnings,
+    fees,
+    summary,
+    sourceText: (text || '').slice(0, 8000),
+    createdAt: new Date().toISOString(),
+    status: 'active',
+    reminderPrefs: { daysBefore: [7, 3, 1, 0] }
+  };
+}
+
+// ========== STORAGE ==========
+const STORAGE_KEY = 'donext_apps_v1';
+function loadApps() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function saveApps(apps) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(apps)); } catch {}
+}
+
+// ========== UI HELPERS ==========
+function Badge({ children, className = '' }) {
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}>{children}</span>;
+}
+
+function ProgressBar({ value, max = 100 }) {
+  const pct = Math.min(100, Math.round((value / Math.max(max, 1)) * 100));
+  return (
+    <div className="w-full bg-slate-200 rounded-full h-2">
+      <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function EmptyState({ icon, title, subtitle, action }) {
+  return (
+    <div className="text-center py-16 px-6">
+      <div className="text-5xl mb-4 opacity-40">{icon}</div>
+      <h3 className="text-lg font-semibold text-slate-700 mb-1">{title}</h3>
+      <p className="text-slate-500 text-sm mb-6 max-w-sm mx-auto">{subtitle}</p>
+      {action}
+    </div>
+  );
+}
+
+// ========== MAIN APP ==========
+function App() {
+  const [apps, setApps] = useState(() => loadApps());
+  const [view, setView] = useState('dashboard');
+  const [selectedAppId, setSelectedAppId] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [uploadText, setUploadText] = useState('');
+  const [uploadFileName, setUploadFileName] = useState('');
+  const fileInputRef = useRef(null);
+
+  useEffect(() => { saveApps(apps); }, [apps]);
+
+  useEffect(() => {
+    const notifs = [];
+    apps.forEach(app => {
+      (app.deadlines || []).forEach(dl => {
+        const days = daysUntil(dl.date);
+        if (days !== null && days >= 0 && days <= 7) {
+          notifs.push({
+            id: `${app.id}-${dl.id}`,
+            type: days <= 1 ? 'urgent' : 'warning',
+            title: dl.title,
+            message: days === 0 ? 'Due today!' : `${days} day${days === 1 ? '' : 's'} remaining`,
+            appId: app.id
+          });
+        }
+      });
+    });
+    setNotifications(notifs.slice(0, 10));
+  }, [apps]);
+
+  const selectedApp = apps.find(a => a.id === selectedAppId);
+
+  const stats = useMemo(() => {
+    let totalTasks = 0, completedTasks = 0, missingDocs = 0, upcomingDeadlines = 0;
+    apps.forEach(a => {
+      (a.requiredActions || []).forEach(t => {
+        totalTasks++;
+        if (t.status === 'completed') completedTasks++;
+      });
+      (a.requiredDocuments || []).forEach(d => {
+        if (d.status === 'missing') missingDocs++;
+      });
+      (a.deadlines || []).forEach(d => {
+        const days = daysUntil(d.date);
+        if (days !== null && days >= 0 && days <= 30) upcomingDeadlines++;
+      });
+    });
+    return { totalTasks, completedTasks, missingDocs, upcomingDeadlines, activeApps: apps.length };
+  }, [apps]);
+
+  const allTasks = useMemo(() => {
+    const list = [];
+    apps.forEach(a => {
+      (a.requiredActions || []).forEach(t => {
+        list.push({ ...t, appId: a.id, appTitle: a.title });
+      });
+    });
+    return list.sort((a, b) => {
+      if (a.status === 'completed' && b.status !== 'completed') return 1;
+      if (b.status === 'completed' && a.status !== 'completed') return -1;
+      const da = a.deadline ? new Date(a.deadline) : new Date(9999, 0);
+      const db = b.deadline ? new Date(b.deadline) : new Date(9999, 0);
+      return da - db;
+    });
+  }, [apps]);
+
+  const allDeadlines = useMemo(() => {
+    const list = [];
+    apps.forEach(a => {
+      (a.deadlines || []).forEach(d => {
+        list.push({ ...d, appId: a.id, appTitle: a.title });
+      });
+    });
+    return list.sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [apps]);
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadFileName(file.name);
+    const reader = new FileReader();
+    if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+      reader.onload = (ev) => setUploadText(ev.target.result);
+      reader.readAsText(file);
+    } else if (file.type === 'application/pdf') {
+      setUploadText(`[PDF uploaded: ${file.name}]\n\nFor best results in this demo, also paste the key text content of the PDF into the text area below.\n\n(Production build would extract text via PDF.js + optional OCR.)`);
+    } else if (file.type.startsWith('image/')) {
+      setUploadText(`[Image/scanned document: ${file.name}]\n\nPlease paste any readable text from the image or describe the content.\n\n(Production would use OCR.)`);
+    } else {
+      setUploadText(`[File: ${file.name}]\n\nPlease paste the important text content below for analysis.`);
+    }
+  };
+
+  const handleAnalyze = () => {
+    if (!uploadText.trim() && !uploadFileName) {
+      alert('Please upload a document or paste text content.');
+      return;
+    }
+    setIsAnalyzing(true);
+    setTimeout(() => {
+      const app = analyzeDocument(uploadText || 'Sample administrative notice', uploadFileName || 'Pasted Content');
+      setApps(prev => [app, ...prev]);
+      setSelectedAppId(app.id);
+      setView('detail');
+      setIsAnalyzing(false);
+      setUploadText('');
+      setUploadFileName('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }, 1600);
+  };
+
+  const updateApp = (id, updater) => {
+    setApps(prev => prev.map(a => a.id === id ? (typeof updater === 'function' ? updater(a) : { ...a, ...updater }) : a));
+  };
+
+  const toggleTaskStatus = (appId, taskId) => {
+    updateApp(appId, a => ({
+      ...a,
+      requiredActions: a.requiredActions.map(t => {
+        if (t.id !== taskId) return t;
+        const next = t.status === 'completed' ? 'not_started' : t.status === 'not_started' ? 'in_progress' : 'completed';
+        return { ...t, status: next };
+      })
+    }));
+  };
+
+  const setDocStatus = (appId, docId, status) => {
+    updateApp(appId, a => ({
+      ...a,
+      requiredDocuments: a.requiredDocuments.map(d => d.id === docId ? { ...d, status } : d)
+    }));
+  };
+
+  const deleteApp = (id) => {
+    if (!confirm('Remove this application and all its tasks?')) return;
+    setApps(prev => prev.filter(a => a.id !== id));
+    if (selectedAppId === id) {
+      setSelectedAppId(null);
+      setView('dashboard');
+    }
+  };
+
+  const handleChat = () => {
+    if (!chatInput.trim() || !selectedApp) return;
+    const q = chatInput.trim();
+    setChatMessages(prev => [...prev, { role: 'user', text: q }]);
+    setChatInput('');
+    setTimeout(() => {
+      let answer = '';
+      const lower = q.toLowerCase();
+      const app = selectedApp;
+      if (lower.includes('eligible') || lower.includes('eligibility')) {
+        answer = `📄 From the document:\n${(app.eligibility || []).map(e => '• ' + e).join('\n') || 'Eligibility criteria were not clearly listed in the extracted content.'}\n\n🤖 AI interpretation:\nPlease verify these against the original document. If your situation is borderline, contact the listed office.`;
+      } else if (lower.includes('deadline') || lower.includes('when is') || lower.includes('due')) {
+        const dls = (app.deadlines || []).map(d => `• ${d.title}: ${formatDate(d.date)}`).join('\n');
+        answer = `📄 From the document:\n${dls || 'No explicit deadlines extracted.'}\n\n🤖 AI suggestion:\nAim to finish 2–3 days early to avoid last-minute technical issues.`;
+      } else if (lower.includes('document') || lower.includes('what do i need') || lower.includes('required')) {
+        const docs = (app.requiredDocuments || []).map(d => `• ${d.name} (${d.status})`).join('\n');
+        answer = `📄 Extracted requirements:\n${docs || 'No specific documents listed.'}`;
+      } else if (lower.includes('where') || lower.includes('apply') || lower.includes('url') || lower.includes('portal') || lower.includes('link')) {
+        answer = app.applicationUrl
+          ? `📄 From the document:\nApplication portal: ${app.applicationUrl}\n\nUse the “Open Application” button on the plan page.`
+          : 'No application URL was found in the provided material.';
+      } else if (lower.includes('missing') || lower.includes('completed') || lower.includes('first') || lower.includes('should i do')) {
+        const incomplete = (app.requiredActions || []).filter(t => t.status !== 'completed');
+        answer = incomplete.length
+          ? `You still have ${incomplete.length} incomplete task(s). Highest priority:\n${incomplete.slice(0, 4).map(t => '• ' + t.title).join('\n')}\n\n🤖 Suggestion: Start with tasks that have the earliest deadlines or that depend on other people (e.g. recommendation letters).`
+          : 'All tracked tasks appear completed. Double-check the original document for any additional steps.';
+      } else if (lower.includes('fee') || lower.includes('cost') || lower.includes('price')) {
+        answer = app.fees ? `📄 From the document: ${app.fees}` : 'No fee information was extracted from the document.';
+      } else if (lower.includes('happen') || lower.includes('miss') || lower.includes('late')) {
+        answer = (app.warnings || []).length
+          ? `📄 From the document:\n${app.warnings.map(w => '• ' + w).join('\n')}`
+          : 'The document did not explicitly state consequences for missing the deadline. Contact the issuing office to confirm.';
+      } else {
+        answer = `Based on the uploaded material (“${app.title}”):\n\nMain purpose: ${app.mainPurpose}\n\nYou can ask more specific questions such as:\n• Am I eligible?\n• What is the deadline?\n• What documents do I need?\n• Where do I apply?\n• What should I do first?`;
+      }
+      setChatMessages(prev => [...prev, { role: 'assistant', text: answer }]);
+    }, 500);
+  };
+
+  // ========== RENDERERS ==========
+  const renderNav = () => (
+    <nav className="sticky top-0 z-40 glass border-b border-white/60 shadow-sm">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setView('dashboard'); setSelectedAppId(null); }}>
+          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">DN</div>
+          <span className="font-semibold text-slate-800 tracking-tight">DoNext</span>
+        </div>
+        <div className="flex items-center gap-1 sm:gap-2">
+          <button onClick={() => setView('dashboard')} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${view === 'dashboard' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <i className="fa-solid fa-gauge-high mr-1.5 hidden sm:inline"></i>Dashboard
+          </button>
+          <button onClick={() => setView('upload')} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${view === 'upload' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <i className="fa-solid fa-upload mr-1.5 hidden sm:inline"></i>New
+          </button>
+          <button onClick={() => setView('missing')} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${view === 'missing' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <i className="fa-solid fa-triangle-exclamation mr-1.5 hidden sm:inline"></i>Missing
+          </button>
+          <div className="relative ml-1">
+            <button className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 relative">
+              <i className="fa-solid fa-bell"></i>
+              {notifications.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">{notifications.length}</span>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+
+  const renderDashboard = () => (
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 fade-in">
+      <div className="mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">Don’t just understand the document.</h1>
+        <p className="text-slate-500 mt-1">Know what to do next.</p>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+        {[
+          { label: 'Active Apps', value: stats.activeApps, icon: 'fa-folder-open', color: 'text-indigo-600 bg-indigo-50' },
+          { label: 'Tasks Done', value: `${stats.completedTasks}/${stats.totalTasks}`, icon: 'fa-check-circle', color: 'text-emerald-600 bg-emerald-50' },
+          { label: 'Missing Docs', value: stats.missingDocs, icon: 'fa-file-circle-exclamation', color: 'text-amber-600 bg-amber-50' },
+          { label: 'Upcoming', value: stats.upcomingDeadlines, icon: 'fa-clock', color: 'text-rose-600 bg-rose-50' }
+        ].map(s => (
+          <div key={s.label} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 card-hover transition">
+            <div className={`w-9 h-9 rounded-xl ${s.color} flex items-center justify-center mb-3`}>
+              <i className={`fa-solid ${s.icon}`}></i>
+            </div>
+            <div className="text-2xl font-bold text-slate-800">{s.value}</div>
+            <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {apps.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
+          <EmptyState
+            icon="📄"
+            title="No applications yet"
+            subtitle="Upload a scholarship notice, university form, internship call, or any administrative document to get started."
+            action={
+              <button onClick={() => setView('upload')} className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition shadow-sm">
+                <i className="fa-solid fa-plus"></i> Upload Document
+              </button>
+            }
+          />
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 className="font-semibold text-slate-800">Your Applications</h2>
+                <button onClick={() => setView('upload')} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">+ Add</button>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {apps.map(app => {
+                  const done = (app.requiredActions || []).filter(t => t.status === 'completed').length;
+                  const total = (app.requiredActions || []).length || 1;
+                  const nextDl = (app.deadlines || []).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+                  const days = nextDl ? daysUntil(nextDl.date) : null;
+                  return (
+                    <div
+                      key={app.id}
+                      onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
+                      className="px-5 py-4 hover:bg-slate-50 cursor-pointer transition flex items-start gap-4"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                        <i className="fa-solid fa-file-lines"></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-slate-800 truncate">{app.title}</div>
+                        <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">{app.description}</div>
+                        <div className="mt-2 flex items-center gap-3">
+                          <div className="flex-1 max-w-[120px]"><ProgressBar value={done} max={total} /></div>
+                          <span className="text-xs text-slate-400">{done}/{total}</span>
+                          {nextDl && (
+                            <span className={`text-xs font-medium ${urgencyColor(days)}`}>
+                              {days < 0 ? 'Overdue' : days === 0 ? 'Due today' : `${days}d left`}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <i className="fa-solid fa-chevron-right text-slate-300 mt-2"></i>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+                  <i className="fa-solid fa-clock text-rose-500"></i> Upcoming Deadlines
+                </h2>
+              </div>
+              {allDeadlines.length === 0 ? (
+                <p className="px-5 py-8 text-sm text-slate-400 text-center">No deadlines tracked yet.</p>
+              ) : (
+                <div className="divide-y divide-slate-50">
+                  {allDeadlines.slice(0, 6).map(dl => {
+                    const days = daysUntil(dl.date);
+                    return (
+                      <div key={dl.id} className={`px-5 py-3.5 flex items-center justify-between ${urgencyBg(days)}`}>
+                        <div>
+                          <div className="font-medium text-slate-800 text-sm">{dl.title}</div>
+                          <div className="text-xs text-slate-500">{dl.appTitle} · Due {formatDate(dl.date)}</div>
+                        </div>
+                        <span className={`text-sm font-semibold ${urgencyColor(days)}`}>
+                          {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `${days} days`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+
+          <div className="space-y-6">
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-800">My Tasks</h2>
+              </div>
+              <div className="max-h-80 overflow-y-auto scrollbar-thin">
+                {allTasks.filter(t => t.status !== 'completed').slice(0, 8).map(t => (
+                  <div key={t.id} className="px-4 py-3 border-b border-slate-50 flex items-start gap-3 hover:bg-slate-50">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleTaskStatus(t.appId, t.id); }}
+                      className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition
+                        ${t.status === 'completed' ? 'bg-emerald-500 border-emerald-500 text-white' :
+                          t.status === 'in_progress' ? 'border-amber-400 bg-amber-50' : 'border-slate-300'}`}
+                    >
+                      {t.status === 'completed' && <i className="fa-solid fa-check text-[10px]"></i>}
+                      {t.status === 'in_progress' && <i className="fa-solid fa-minus text-[10px] text-amber-500"></i>}
+                    </button>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-slate-700 leading-snug">{t.title}</div>
+                      <div className="text-xs text-slate-400 mt-0.5">{t.appTitle}</div>
+                    </div>
+                  </div>
+                ))}
+                {allTasks.filter(t => t.status !== 'completed').length === 0 && (
+                  <p className="px-5 py-8 text-sm text-slate-400 text-center">All caught up 🎉</p>
+                )}
+              </div>
+            </section>
+
+            {notifications.length > 0 && (
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100">
+                  <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+                    <i className="fa-solid fa-bell text-amber-500"></i> Notifications
+                  </h2>
+                </div>
+                <div className="divide-y divide-slate-50 max-h-60 overflow-y-auto">
+                  {notifications.map(n => (
+                    <div key={n.id} className="px-4 py-3 text-sm">
+                      <div className="font-medium text-slate-800">{n.title}</div>
+                      <div className="text-xs text-slate-500">{n.message}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderUpload = () => (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10 fade-in">
+      <div className="text-center mb-8">
+        <h1 className="text-2xl font-bold text-slate-900">Upload or paste your document</h1>
+        <p className="text-slate-500 mt-2 text-sm">PDF, Word, text, or image. Or just paste the important parts.</p>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 space-y-5">
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:border-indigo-300 hover:bg-indigo-50/50 transition cursor-pointer"
+        >
+          <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.txt,.md,image/*" onChange={handleFileUpload} />
+          <div className="text-4xl mb-3">📎</div>
+          <p className="font-medium text-slate-700">Click to upload</p>
+          <p className="text-xs text-slate-400 mt-1">PDF, DOC, TXT, or image</p>
+          {uploadFileName && <p className="mt-3 text-sm text-indigo-600 font-medium">{uploadFileName}</p>}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Or paste text content</label>
+          <textarea
+            value={uploadText}
+            onChange={e => setUploadText(e.target.value)}
+            rows={10}
+            placeholder="Paste the full text of the notice, eligibility criteria, deadlines, required documents, application links…"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y"
+          />
+        </div>
+
+        <button
+          onClick={handleAnalyze}
+          disabled={isAnalyzing}
+          className="w-full py-3 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+        >
+          {isAnalyzing ? (
+            <>
+              <i className="fa-solid fa-spinner fa-spin"></i> Analyzing with AI…
+            </>
+          ) : (
+            <>
+              <i className="fa-solid fa-wand-magic-sparkles"></i> Analyze & Create Action Plan
+            </>
+          )}
+        </button>
+
+        <p className="text-xs text-slate-400 text-center">
+          Demo uses smart heuristics + rich sample logic for scholarship/internship docs. Production connects to a generative AI model.
+        </p>
+      </div>
+
+      <div className="mt-6 text-center">
+        <button
+          onClick={() => {
+            setUploadText(`UNDERGRADUATE SCHOLARSHIP ANNOUNCEMENT
+
+The University Scholarship Committee invites applications for the Merit-cum-Need Scholarship for the academic year 2026-27.
+
+Eligibility:
+- Currently enrolled undergraduate students
+- Minimum CGPA of 3.0
+- Demonstrated financial need (family income below threshold)
+- Valid CNIC / National ID
+
+Required Documents:
+1. CNIC (scanned copy)
+2. Latest official transcript
+3. Income certificate (issued within 6 months)
+4. Passport-size photograph
+5. One recommendation letter from a faculty member
+
+Application Process:
+Create an account on the portal https://scholarships.example.edu/apply and submit the online form together with all documents.
+
+Deadline: September 15, 2026
+Recommendation letters must reach the office by September 10, 2026.
+Document verification will be completed by September 20, 2026.
+
+Important: Incomplete or late applications will not be considered. No application fee is required.
+
+Contact: scholarships@example.edu`);
+            setUploadFileName('Scholarship_Announcement.txt');
+          }}
+          className="text-sm text-indigo-600 hover:text-indigo-800 font-medium underline"
+        >
+          Load sample scholarship announcement
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderDetail = () => {
+    if (!selectedApp) return null;
+    const app = selectedApp;
+    const doneTasks = (app.requiredActions || []).filter(t => t.status === 'completed').length;
+    const totalTasks = (app.requiredActions || []).length || 1;
+    const missingDocs = (app.requiredDocuments || []).filter(d => d.status === 'missing').length;
+
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 fade-in">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
+          <div>
+            <button onClick={() => setView('dashboard')} className="text-sm text-slate-500 hover:text-indigo-600 mb-2 flex items-center gap-1">
+              <i className="fa-solid fa-arrow-left"></i> Dashboard
+            </button>
+            <h1 className="text-2xl font-bold text-slate-900">{app.title}</h1>
+            <p className="text-slate-500 text-sm mt-1 max-w-2xl">{app.description}</p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button onClick={() => { setView('chat'); setChatMessages([]); }} className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium hover:bg-slate-50">
+              <i className="fa-solid fa-comments mr-1.5"></i> Ask AI
+            </button>
+            <button onClick={() => deleteApp(app.id)} className="px-3 py-2 rounded-xl border border-red-100 text-red-500 text-sm hover:bg-red-50">
+              <i className="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-slate-700">Overall Progress</span>
+            <span className="text-sm text-slate-500">{doneTasks}/{totalTasks} tasks · {missingDocs} docs missing</span>
+          </div>
+          <ProgressBar value={doneTasks} max={totalTasks} />
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+              <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="text-lg">📄</span> What is this?
+              </h2>
+              <p className="text-slate-600 text-sm leading-relaxed mb-4">{app.summary?.whatIsThis || app.description}</p>
+
+              {app.eligibility?.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+                    <span>👤</span> Who is eligible?
+                  </h3>
+                  <ul className="space-y-1">
+                    {app.eligibility.map((e, i) => (
+                      <li key={i} className="text-sm text-slate-600 flex items-start gap-2">
+                        <i className="fa-solid fa-check text-emerald-500 mt-1 text-xs"></i>
+                        {e}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {app.summary?.applicationDeadline && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-semibold text-slate-700">⏰ Application deadline</span>
+                  <span className="text-indigo-600 font-medium">{formatDate(app.summary.applicationDeadline)}</span>
+                </div>
+              )}
+              {app.fees && <div className="mt-2 text-sm text-slate-600">💰 {app.fees}</div>}
+            </section>
+
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+                  <span>✅</span> Your To-Do List
+                </h2>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {(app.requiredActions || []).map((task, idx) => (
+                  <div key={task.id} className={`px-5 py-4 flex items-start gap-4 ${task.priority === 'high' ? 'priority-high' : task.priority === 'medium' ? 'priority-medium' : 'priority-low'}`}>
+                    <button
+                      onClick={() => toggleTaskStatus(app.id, task.id)}
+                      className={`mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition
+                        ${task.status === 'completed' ? 'bg-emerald-500 border-emerald-500 text-white' :
+                          task.status === 'in_progress' ? 'border-amber-400 bg-amber-50 text-amber-600' : 'border-slate-300 hover:border-indigo-400'}`}
+                    >
+                      {task.status === 'completed' && <i className="fa-solid fa-check text-xs"></i>}
+                      {task.status === 'in_progress' && <i className="fa-solid fa-spinner text-xs"></i>}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className={`font-medium text-sm ${task.status === 'completed' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                        {idx + 1}. {task.title}
+                      </div>
+                      {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <Badge className={
+                          task.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                          task.status === 'in_progress' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                        }>
+                          {task.status.replace('_', ' ')}
+                        </Badge>
+                        {task.deadline && <Badge className="bg-slate-100 text-slate-600">Due {formatDate(task.deadline)}</Badge>}
+                        {task.priority && (
+                          <Badge className={
+                            task.priority === 'high' ? 'bg-red-50 text-red-600' :
+                            task.priority === 'medium' ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'
+                          }>
+                            {task.priority}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+                  <span>📎</span> Required Documents
+                </h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left text-slate-500">
+                      <th className="px-5 py-3 font-medium">Document</th>
+                      <th className="px-5 py-3 font-medium">Status</th>
+                      <th className="px-5 py-3 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {(app.requiredDocuments || []).map(doc => (
+                      <tr key={doc.id}>
+                        <td className="px-5 py-3">
+                          <div className="font-medium text-slate-800">{doc.name}</div>
+                          {doc.notes && <div className="text-xs text-slate-400">{doc.notes}</div>}
+                        </td>
+                        <td className="px-5 py-3">
+                          {doc.status === 'ready' ? (
+                            <Badge className="bg-emerald-100 text-emerald-700">✅ Ready</Badge>
+                          ) : (
+                            <Badge className="bg-red-50 text-red-600">❌ Missing</Badge>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">
+                          <button
+                            onClick={() => setDocStatus(app.id, doc.id, doc.status === 'ready' ? 'missing' : 'ready')}
+                            className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                          >
+                            Mark as {doc.status === 'ready' ? 'Missing' : 'Ready'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {(app.requiredDocuments || []).length === 0 && (
+                      <tr><td colSpan={3} className="px-5 py-8 text-center text-slate-400">No specific documents listed</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <div className="space-y-6">
+            {app.applicationUrl && (
+              <section className="bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl p-5 text-white shadow-lg">
+                <h3 className="font-semibold mb-1 flex items-center gap-2">
+                  <i className="fa-solid fa-globe"></i> Online Application
+                </h3>
+                <p className="text-indigo-100 text-sm mb-3">Application portal detected</p>
+                <div className="text-xs text-indigo-200 mb-1">Deadline: {formatDate(app.summary?.applicationDeadline)}</div>
+                <a
+                  href={app.applicationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-flex items-center gap-2 w-full justify-center py-2.5 bg-white text-indigo-700 rounded-xl font-semibold text-sm hover:bg-indigo-50 transition"
+                >
+                  Open Application <i className="fa-solid fa-arrow-up-right-from-square text-xs"></i>
+                </a>
+                <p className="text-[11px] text-indigo-200 mt-3">DoNext never submits forms for you. It only guides and tracks.</p>
+              </section>
+            )}
+
+            <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100">
+                <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-2">
+                  <i className="fa-solid fa-calendar-days text-rose-500"></i> Deadlines
+                </h3>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {(app.deadlines || []).map(dl => {
+                  const days = daysUntil(dl.date);
+                  return (
+                    <div key={dl.id} className={`px-4 py-3 ${urgencyBg(days)}`}>
+                      <div className="text-sm font-medium text-slate-800">{dl.title}</div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-xs text-slate-500">{formatDate(dl.date)}</span>
+                        <span className={`text-xs font-semibold ${urgencyColor(days)}`}>
+                          {days < 0 ? 'Overdue' : days === 0 ? 'Today' : `${days} days left`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(app.deadlines || []).length === 0 && (
+                  <p className="px-4 py-6 text-xs text-slate-400 text-center">No deadlines extracted</p>
+                )}
+              </div>
+            </section>
+
+            {app.warnings?.length > 0 && (
+              <section className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+                <h3 className="font-semibold text-amber-800 text-sm mb-2 flex items-center gap-1.5">
+                  <i className="fa-solid fa-triangle-exclamation"></i> Important
+                </h3>
+                <ul className="space-y-1.5">
+                  {app.warnings.map((w, i) => (
+                    <li key={i} className="text-xs text-amber-900 leading-relaxed">• {w}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            <div className="bg-slate-50 rounded-xl p-4 text-xs text-slate-500 leading-relaxed">
+              <div className="font-semibold text-slate-600 mb-1">Trust & Accuracy</div>
+              Information from the document is extracted from your upload. AI suggestions are clearly labeled and should be verified against the original source.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMissing = () => {
+    const missingItems = [];
+    apps.forEach(app => {
+      (app.requiredDocuments || []).filter(d => d.status === 'missing').forEach(d => {
+        missingItems.push({
+          type: 'document',
+          name: d.name,
+          appTitle: app.title,
+          appId: app.id,
+          priority: 'high',
+          note: d.notes || 'Required for application'
+        });
+      });
+      (app.requiredActions || []).filter(t => t.status !== 'completed').forEach(t => {
+        const days = t.deadline ? daysUntil(t.deadline) : null;
+        missingItems.push({
+          type: 'task',
+          name: t.title,
+          appTitle: app.title,
+          appId: app.id,
+          priority: t.priority || (days !== null && days <= 3 ? 'high' : 'medium'),
+          deadline: t.deadline,
+          days
+        });
+      });
+    });
+    missingItems.sort((a, b) => {
+      const score = (x) => {
+        if (x.days !== null && x.days !== undefined) return x.days;
+        if (x.priority === 'high') return 2;
+        if (x.priority === 'medium') return 10;
+        return 20;
+      };
+      return score(a) - score(b);
+    });
+
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 fade-in">
+        <h1 className="text-2xl font-bold text-slate-900 mb-1">What Am I Missing?</h1>
+        <p className="text-slate-500 text-sm mb-6">Incomplete requirements prioritized by urgency.</p>
+
+        {missingItems.length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100">
+            <EmptyState icon="✨" title="Nothing missing" subtitle="All tracked documents and tasks are complete." />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {missingItems.map((item, i) => (
+              <div
+                key={i}
+                onClick={() => { setSelectedAppId(item.appId); setView('detail'); }}
+                className={`bg-white rounded-xl border border-slate-100 p-4 shadow-sm cursor-pointer hover:border-indigo-200 transition ${item.priority === 'high' ? 'priority-high' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {i === 0 && <Badge className="bg-red-100 text-red-700">Highest Priority</Badge>}
+                      <Badge className={item.type === 'document' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}>
+                        {item.type === 'document' ? '📄 Document' : '✅ Task'}
+                      </Badge>
+                    </div>
+                    <div className="font-medium text-slate-800 mt-1.5">{item.name}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{item.appTitle}</div>
+                    {item.note && <div className="text-xs text-slate-400 mt-1">{item.note}</div>}
+                    {item.type === 'document' && item.name.toLowerCase().includes('recommendation') && (
+                      <div className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 py-1.5 inline-block">
+                        🤖 AI estimate: Recommendation letters can take several days — start early.
+                      </div>
+                    )}
+                  </div>
+                  {item.deadline && (
+                    <div className={`text-right text-sm font-semibold ${urgencyColor(item.days)}`}>
+                      {item.days < 0 ? 'Overdue' : item.days === 0 ? 'Today' : `${item.days}d`}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderChat = () => {
+    if (!selectedApp) return null;
+    return (
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 fade-in flex flex-col" style={{ height: 'calc(100vh - 3.5rem)' }}>
+        <div className="mb-4">
+          <button onClick={() => setView('detail')} className="text-sm text-slate-500 hover:text-indigo-600 mb-2 flex items-center gap-1">
+            <i className="fa-solid fa-arrow-left"></i> Back to plan
+          </button>
+          <h1 className="text-xl font-bold text-slate-900">Ask about “{selectedApp.title}”</h1>
+          <p className="text-xs text-slate-500 mt-1">Answers are grounded in the uploaded document. AI interpretations are labeled.</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1 scrollbar-thin">
+          {chatMessages.length === 0 && (
+            <div className="text-center py-12 text-slate-400 text-sm">
+              <div className="text-3xl mb-3">💬</div>
+              Try asking: “Am I eligible?”, “What documents do I need?”, “What is the deadline?”, “What should I do first?”
+            </div>
+          )}
+          {chatMessages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-md' : 'bg-white border border-slate-100 shadow-sm text-slate-700 rounded-bl-md'
+              }`}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleChat()}
+            placeholder="Ask a question about this document…"
+            className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button onClick={handleChat} className="px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition">
+            <i className="fa-solid fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen">
+      {renderNav()}
+      {view === 'dashboard' && renderDashboard()}
+      {view === 'upload' && renderUpload()}
+      {view === 'detail' && renderDetail()}
+      {view === 'missing' && renderMissing()}
+      {view === 'chat' && renderChat()}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script></body></html>
